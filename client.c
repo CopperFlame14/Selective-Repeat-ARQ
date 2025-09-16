@@ -1,3 +1,4 @@
+// client.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,16 +10,18 @@
 #define SERVER_IP "127.0.0.1"
 #define PORT 12345
 #define BUF_SIZE 1024
+#define DATA_SIZE 1000     // Limit message data to safely fit in buffer
 #define WINDOW_SIZE 4
 #define MAX_SEQ 10
 
 typedef struct {
     int acked;
-    char data[BUF_SIZE];
+    char data[DATA_SIZE];
 } Frame;
 
 int main() {
-    printf("M R KRISHNI 24BCE1704");
+    printf("M R KRISHNI 24BCE1704\n");
+
     int sockfd;
     struct sockaddr_in servaddr;
     char buffer[BUF_SIZE];
@@ -61,23 +64,27 @@ int main() {
         while (next_seq_num < base + WINDOW_SIZE && next_seq_num < total_msgs) {
             int idx = next_seq_num - base;
             if (window[idx].acked) {
-                snprintf(buffer, BUF_SIZE, "%d|%s", next_seq_num, messages[next_seq_num]);
+                // Copy safely into window data
+                snprintf(window[idx].data, sizeof(window[idx].data), "%s", messages[next_seq_num]);
+
+                // Prepare buffer safely
+                snprintf(buffer, sizeof(buffer), "%d|%s", next_seq_num, window[idx].data);
+
                 sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)&servaddr, len);
-                printf("Sent packet seq %d: %s\n", next_seq_num, messages[next_seq_num]);
-                strcpy(window[idx].data, messages[next_seq_num]);
+                printf("Sent packet seq %d: %s\n", next_seq_num, window[idx].data);
                 window[idx].acked = 0;
             }
             next_seq_num++;
         }
 
         // Wait for ACKs
-        int n = recvfrom(sockfd, buffer, BUF_SIZE, 0, NULL, NULL);
+        int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, NULL, NULL);
         if (n < 0) {
             perror("Timeout or recvfrom error. Resending unacked frames...");
             // Retransmit unacked frames in window
             for (int i = 0; i < WINDOW_SIZE; i++) {
                 if (!window[i].acked && (base + i) < total_msgs) {
-                    snprintf(buffer, BUF_SIZE, "%d|%s", base + i, window[i].data);
+                    snprintf(buffer, sizeof(buffer), "%d|%s", base + i, window[i].data);
                     sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)&servaddr, len);
                     printf("Resent packet seq %d: %s\n", base + i, window[i].data);
                 }
